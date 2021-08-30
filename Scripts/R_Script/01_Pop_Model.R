@@ -14,12 +14,12 @@ library(rstanarm)
 library(matrixStats)
 
 #Set working directory
-setwd("C:/Users/tmcdevitt-galles/Documents/Population_model")
+setwd("C:/Users/tmcdevitt-galles/Documents/Population_Dynamics")
 
 
 ### Loading in simple dataset
 
-full.df <- read.csv("simple_df.csv")
+full.df <- read.csv("Data/simple_df.csv")
 
 dim(full.df) ## 1923 X 24
 
