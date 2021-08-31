@@ -14,7 +14,7 @@ library(rstanarm)
 library(matrixStats)
 
 #Set working directory
-setwd("C:/Users/tmcdevitt-galles/Documents/Population_Dynamics")
+setwd("C:/Users/tmcdevitt-galles/Documents/Population_dynamics")
 
 
 ### Loading in simple dataset

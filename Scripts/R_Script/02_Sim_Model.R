@@ -15,7 +15,7 @@ library(rstanarm)
 library(matrixStats)
 
 #Set working directory
-setwd("C:/Users/tmcdevitt-galles/Documents/Population_model")
+setwd("C:/Users/tmcdevitt-galles/Documents/Population_dynamics")
 
 # simulating population data for a single plot overtime. 
 # 
@@ -45,26 +45,16 @@ setwd("C:/Users/tmcdevitt-galles/Documents/Population_model")
 
 ## Lets make it simple by using the total number of sampling events 
 
-real.df <- read.csv("Data/simple_df.csv")
+real.df <- read.csv("Data/simple_weather.csv")
 
 # adding julian dates to dataframe
+# 
 real.df$Julian <- real.df$DOY+(real.df$Year-min(real.df$Year))*365
 
-# Selecting only one plot
-sub.df <- real.df %>% filter( Plot == "UNDE_066")
-
-# Selecting only precipt , Tmin, julian data and year
-covar.df <- sub.df %>% select(c("Tmin7","PPT14", "Julian", "Year"))
-
-# taking the mean value for all unique sampling events
-covar.df <- covar.df %>% group_by(Julian, Year) %>% 
-  summarize(
-    Tmin = mean(Tmin7),
-    PPT = mean(PPT14)
-  )
+covar.df <- real.df
 
 ## Plotting the data
-covar.df %>%  ggplot(aes(x=Julian, y=Tmin) ) + geom_point()
+covar.df %>%  ggplot(aes(x=Julian, y=TMIN) ) + geom_point()
 
 covar.df %>%  ggplot(aes(x=Julian, y=PPT) ) + geom_point()
 
@@ -76,37 +66,37 @@ y.df$Count <- NA
 
 y.df$Offset <- rbeta(nrow(y.df),9,3)   
 
-X <- model.matrix(y.df$Offset ~ scale(covar.df$Tmin) *
-                    scale(covar.df$PPT) )
+X <- model.matrix(y.df$Offset ~ (covar.df$TMIN) *
+                  (covar.df$PPT) )
 
 ## establising known parameters
 
-betas <- c(-3,1,-1,.5)
+betas <- c(-3,.2,0,0)
 
-rho <- 1
+rho <- .8
 
 sigma <- 1.5
 
 
 y.df <- y.df %>% arrange( Julian)
 
-y.df$Count[1] <- 1
+y.df$Count[1] <-0
 
-
+r <- rep(NA, nrow(y.df)-1 )
 
 # simulating data ?
 
 for(i in 2:nrow(y.df)){
   
-  r <-  exp(sum(X[i-1,]*betas)+(log(y.df$Count[i-1])*rho))
+r[i] <- (sum(X[i-1,]*betas))*(y.df$Count[i-1])+((y.df$Count[i-1])*rho)
   
-  y.df$Count[i] <- as.integer(round(rlnorm( 1,r ,1.5),0))
+  y.df$Count[i] <- rlnorm( 1,(r[i]) ,1.5)
 }
 
-y.df %>% ggplot(aes(x=Julian, y= ((Count) ))) + geom_point()
+y.df %>% ggplot(aes(x=Julian, y= exp((Count) ))) + geom_point()
 
 
-y.df %>% ggplot(aes(x=Julian, y= log10(exp(Count)+1 ))) + geom_point()
+y.df %>% ggplot(aes(x=Julian, y= log10((Count)+1 ))) + geom_point()
 
 
 Plot_Samples <- nrow(y.df)
