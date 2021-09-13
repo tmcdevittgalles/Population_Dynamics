@@ -45,33 +45,53 @@ setwd("C:/Users/tmcdevitt-galles/Documents/Population_dynamics")
 
 ## Lets make it simple by using the total number of sampling events 
 
-real.df <- read.csv("Data/simple_weather.csv")
 
-# adding julian dates to dataframe
-# 
-real.df$Julian <- real.df$DOY+(real.df$Year-min(real.df$Year))*365
+weather.df <- read.csv("Data/simple_weather.csv")
 
-covar.df <- real.df
 
-## Plotting the data
-covar.df %>%  ggplot(aes(x=Julian, y=TMIN) ) + geom_point()
 
-covar.df %>%  ggplot(aes(x=Julian, y=PPT) ) + geom_point()
+weather.df$Julian <- weather.df$DOY+(weather.df$Year-min(weather.df$Year))*365
 
-# creating an empty vector to store simulated data
+Weather <- model.matrix(~ scale(weather.df$PPT)*scale(weather.df$TMIN))
 
-y.df <- data.frame( Julian = covar.df$Julian )
+
+### Temperature
+gam.temp <- gam( TMIN ~ s(Julian,k=25, bs= "cr"),
+                 data=weather.df, family="gaussian")
+
+
+summary(gam.temp)
+## lets try and plot this with new data
+
+pred.df <- dplyr::select( weather.df, c("Julian"))
+
+dum.df <-  unique(pred.df)
+
+weather.df$STemp<- predict(gam.temp, newdata = dum.df)
+
+
+weather.df  %>% 
+  ggplot(  aes(x=Julian, y=STemp) ) + 
+  geom_point( aes(x= Julian,y=TMIN),size=1)+
+  geom_line(size=2,alpha=.75)+ theme_classic()
+
+weather.df$mPPT <- caTools::runmean(weather.df$PPT,30)
+
+plot(weather.df$Julian,weather.df$mPPT, type = "l")
+plot(weather.df$Julian,weather.df$TMIN, type = "l")
+plot(weather.df$Julian,weather.df$STemp, type = "l")
+
+X <- model.matrix(~scale(weather.df$STemp)*scale(weather.df$mPPT))
+
+y.df <- data.frame( Julian = weather.df$Julian )
 
 y.df$Count <- NA
 
 y.df$Offset <- rbeta(nrow(y.df),9,3)   
 
-X <- model.matrix(y.df$Offset ~ (covar.df$TMIN) *
-                  (covar.df$PPT) )
-
 ## establising known parameters
 
-betas <- c(-3,.2,0,0)
+betas <- c(-1, 1, -.5, .15)
 
 rho <- .8
 
@@ -88,26 +108,171 @@ r <- rep(NA, nrow(y.df)-1 )
 
 for(i in 2:nrow(y.df)){
   
-r[i] <- (sum(X[i-1,]*betas))*(y.df$Count[i-1])+((y.df$Count[i-1])*rho)
+r[i] <- (sum(X[i-1,]*betas))+((y.df$Count[i-1])*rho)
   
-  y.df$Count[i] <- rlnorm( 1,(r[i]) ,1.5)
+  y.df$Count[i] <-  ( rnorm( 1,(r[i])*y.df$Offset[i] ,sigma) )
 }
 
-y.df %>% ggplot(aes(x=Julian, y= exp((Count) ))) + geom_point()
+y.df %>% ggplot(aes(x=Julian, y= (exp(Count) ))) + geom_point()
 
 
-y.df %>% ggplot(aes(x=Julian, y= log10((Count)+1 ))) + geom_point()
+y.df %>% ggplot(aes(x=Julian, y= log10(exp(Count)+1 ))) + geom_point()
+
+y.df$Julian <- y.df$Julian+1
+
+y.df$rCount <- as.integer( round( exp(y.df$Count), 0 ))
 
 
-Plot_Samples <- nrow(y.df)
+y.df %>% ggplot(aes(x=Julian, y= (rCount ))) + geom_point()
+
 ## testing to see if i can get these values back
 
-
 stan_d <- list( N = nrow(y.df), P = ncol(X),
-                X= X, G = length(Plot_Samples),
-                group_samp = c(Plot_Samples),
-                Y= y.df$Count, offset = y.df$Offset )
+                Time = nrow(X),
+                Julian = y.df$Julian,
+                X= X,
+                Y= y.df$rCount, offset = y.df$Offset )
 
-ar_output3 <- stan( 'Scripts/Stan/Ar_take2.stan', 
+ar_output3 <- stan( 'Scripts/Stan/Ar_take_3.stan', 
                     data=stan_d, iter = 5000,
                     control = list(max_treedepth = 20))
+
+
+
+print(ar_output3, pars = c("rho", 'beta', "sigma"))
+traceplot(ar_output3)
+
+
+post <- extract(ar_output3)
+
+
+saveRDS(ar_output3 ,"bayes_sim.rds")
+
+
+## plotting rho values
+
+rho.df <- as.data.frame(post$rho)
+
+colnames(rho.df) <- "Rho"
+
+sig.df <- as.data.frame(post$sigma)
+
+colnames(sig.df) <- "Sigma"
+## plotting rho values
+
+beta.df <- as.data.frame(post$beta)
+
+
+colnames(beta.df) <- c("Intercept", "TMin", "PPT", "TMin:PPT")
+
+beta.df <- cbind.data.frame(beta.df, rho.df)
+
+beta.df <- cbind.data.frame(beta.df, sig.df)
+
+
+
+beta.df <- tidyr::pivot_longer(beta.df, cols= 1:6, names_to="Parameters",
+                               values_to = "Estimate")
+
+beta.df$Parameters <- factor( beta.df$Parameters, level=c("Rho", "Intercept", "TMin", "PPT",
+                                                          "TMin:PPT", "Sigma"))
+
+known.df <- data.frame( Pars = as.factor(c("Rho", "Intercept", "TMin", "PPT",
+                                           "TMin:PPT", "Sigma")),
+                        Value = as.numeric(c(.8,-1,1,-.5,.15,1.5)) )
+
+ggplot(beta.df, aes(x=Parameters, y=Estimate))+  geom_violin(alpha=.5,fill="gray")+
+  geom_boxplot(color="black", width=.05, outlier.size = 0) +
+  geom_hline(yintercept = 0, size=1 ) +theme_classic()+
+  ylab("Estimate")+ xlab("Parameters")+
+  geom_point(data=known.df, aes(x=Pars, y = Value),size=3, color="red")+
+  theme( legend.key.size = unit(1.5, "cm"),
+         legend.title =element_text(size=14,margin = margin(r =10,unit = "pt")),
+         legend.text=element_text(size=14,margin = margin(r =10, unit = "pt")), 
+         legend.position = "top",
+         axis.line.x = element_line(color="black") ,
+         axis.ticks.y = element_line(color="black"),
+         axis.ticks.x = element_line(color="black"),
+         axis.title.x = element_text(size = rel(1.8)),
+         axis.text.x  = element_text(vjust=0.5, color = "black",size=14),
+         axis.text.y  = element_text(vjust=0.5,color = "black",size=14),
+         axis.title.y = element_text(size = rel(1.8), angle = 90) ,
+         strip.text.x = element_text(size=20) )
+
+
+
+
+
+plot.df <- stan.df
+
+plot.df <- as.data.frame(colMedians(as.matrix(post$m)))
+
+test <- colQuantiles(as.matrix(post$m), probs=c(0.025,0.975))
+
+plot.df$Q_2.5  <- test[,1]
+
+plot.df$Q_97.5  <- test[,2]
+plot.df$Julian <- 1:nrow(plot.df)
+
+colnames(plot.df)[1] <- "Count"
+
+plot.df %>% 
+  ggplot( aes(x=Julian, y=log10(exp(Count)+1))) +
+  geom_ribbon(aes(x=Julian, ymin= log10(exp(Q_2.5)+1), 
+                  ymax= log10(exp(Q_97.5)+1) ), fill ="grey",alpha=.7 )+
+  geom_line(color="red", size=2)+
+  geom_point(data=stan.df, aes(x=Julian, y=log10(( Count /TrapHours) +1)) )+
+  ylab("log10(Predicted mosquito count)") + 
+  xlab("Julian date")+ theme_classic()+
+  theme( legend.key.size = unit(1.5, "cm"),
+         legend.title =element_text(size=14,margin = margin(r =10,unit = "pt")),
+         legend.text=element_text(size=14,margin = margin(r =10, unit = "pt")), 
+         legend.position = "top",
+         axis.line.x = element_line(color="black") ,
+         axis.ticks.y = element_line(color="black"),
+         axis.ticks.x = element_line(color="black"),
+         axis.title.x = element_text(size = rel(1.8)),
+         axis.text.x  = element_text(vjust=0.5, color = "black",size=14),
+         axis.text.y  = element_text(vjust=0.5,color = "black",size=14),
+         axis.title.y = element_text(size = rel(1.8), angle = 90) ,
+         strip.text.x = element_text(size=20) )
+
+
+
+plot.df %>% 
+  ggplot( aes(x=Julian, y=log10((Count*Offset)+1))) + 
+  geom_point(aes(x= Julian, y= Pred*.52),size=1)+
+  geom_point(color="red", size=.7)+ facet_wrap(~Plot, scales ="free")
+
+
+plot.df %>% 
+  ggplot( aes(x=Julian, y=log10((Count*Offset)+1), color = as.factor(Year))) +
+  geom_point(aes(x= Julian, y= Pred*Offset),size=2)+
+  geom_point(color="black", size=1.5,alpha=.5)+ylab("Mosquito Count") + 
+  xlab("Julian date")
+scale_color_brewer(palette = "Set1",
+                   name="Predicted count year")+ theme_classic()+
+  theme( legend.key.size = unit(1.5, "cm"),
+         legend.title =element_text(size=14,margin = margin(r =10,unit = "pt")),
+         legend.text=element_text(size=14,margin = margin(r =10, unit = "pt")), 
+         legend.position = "top",
+         axis.line.x = element_line(color="black") ,
+         axis.ticks.y = element_line(color="black"),
+         axis.ticks.x = element_line(color="black"),
+         axis.title.x = element_text(size = rel(1.8)),
+         axis.text.x  = element_text(vjust=0.5, color = "black",size=14),
+         axis.text.y  = element_text(vjust=0.5,color = "black",size=14),
+         axis.title.y = element_text(size = rel(1.8), angle = 90) ,
+         strip.text.x = element_text(size=20) )
+
+
+plot.df %>% 
+  ggplot( aes(x=Julian, y=log10(Count*Offset+1))) + 
+  geom_ribbon(aes(x=Julian, ymin=0, ymax=(Q_97.5*Offset)))+
+  geom_point(color="red", size=1.5)+ facet_wrap(~Year, scales ="free")
+
+plot.df %>% 
+  ggplot( aes(x=exp(Q_97.5), y=exp(Pred))) +geom_point() +
+  geom_abline(slope=1, intercept=0)
+
+
