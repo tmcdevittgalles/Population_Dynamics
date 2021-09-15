@@ -13,6 +13,7 @@ library(patchwork)
 library(rstan)
 library(rstanarm)
 library(matrixStats)
+library(gamm4)
 
 #Set working directory
 setwd("C:/Users/tmcdevitt-galles/Documents/Population_dynamics")
@@ -52,8 +53,6 @@ weather.df <- read.csv("Data/simple_weather.csv")
 
 weather.df$Julian <- weather.df$DOY+(weather.df$Year-min(weather.df$Year))*365
 
-Weather <- model.matrix(~ scale(weather.df$PPT)*scale(weather.df$TMIN))
-
 
 ### Temperature
 gam.temp <- gam( TMIN ~ s(Julian,k=25, bs= "cr"),
@@ -91,11 +90,11 @@ y.df$Offset <- rbeta(nrow(y.df),9,3)
 
 ## establising known parameters
 
-betas <- c(-1, 1, -.5, .15)
+betas <- c(-8, -3, 3,-3)
 
-rho <- .8
+rho <- .5
 
-sigma <- 1.5
+sigma <- 6
 
 
 y.df <- y.df %>% arrange( Julian)
@@ -118,10 +117,9 @@ y.df %>% ggplot(aes(x=Julian, y= (exp(Count) ))) + geom_point()
 
 y.df %>% ggplot(aes(x=Julian, y= log10(exp(Count)+1 ))) + geom_point()
 
-y.df$Julian <- y.df$Julian+1
+y.df$Julian <- 1:nrow(y.df)
 
 y.df$rCount <- as.integer( round( exp(y.df$Count), 0 ))
-
 
 y.df %>% ggplot(aes(x=Julian, y= (rCount ))) + geom_point()
 
@@ -133,20 +131,122 @@ stan_d <- list( N = nrow(y.df), P = ncol(X),
                 X= X,
                 Y= y.df$rCount, offset = y.df$Offset )
 
-ar_output3 <- stan( 'Scripts/Stan/Ar_take_3.stan', 
-                    data=stan_d, iter = 5000,
-                    control = list(max_treedepth = 20))
+ar_output3a <- stan( 'Scripts/Stan/Ar_take_3.stan', 
+                    data=stan_d, iter = 4000,
+                    control = list(max_treedepth = 10))
 
 
 
-print(ar_output3, pars = c("rho", 'beta', "sigma"))
+print(ar_output3a, pars = c("rho", 'beta', "sigma"))
 traceplot(ar_output3)
 
 
-post <- extract(ar_output3)
+post <- extract(ar_output3a)
 
 
 saveRDS(ar_output3 ,"bayes_sim.rds")
+
+
+## plotting rho values
+
+rho.df <- as.data.frame(post$rho)
+
+colnames(rho.df) <- "Rho"
+
+sig.df <- as.data.frame(post$sigma)
+
+colnames(sig.df) <- "Sigma"
+## plotting rho values
+
+beta.df <- as.data.frame(post$beta)
+
+
+colnames(beta.df) <- c("Intercept", "TMin", "PPT", "TMin:PPT")
+
+beta.df <- cbind.data.frame(beta.df, rho.df)
+
+beta.df <- cbind.data.frame(beta.df, sig.df)
+
+
+
+beta.df <- tidyr::pivot_longer(beta.df, cols= 1:6, names_to="Parameters",
+                               values_to = "Estimate")
+
+beta.df$Parameters <- factor( beta.df$Parameters, level=c("Rho", "Intercept", "TMin", "PPT",
+                                                          "TMin:PPT", "Sigma"))
+
+known.df <- data.frame( Pars = as.factor(c("Rho", "Intercept", "TMin", "PPT",
+                                           "TMin:PPT", "Sigma")),
+                        Value = as.numeric(c(.5,-8,-3,3,-3,6)) )
+
+ggplot(beta.df, aes(x=Parameters, y=Estimate))+  geom_violin(alpha=.5,fill="gray")+
+  geom_boxplot(color="black", width=.05, outlier.size = 0) +
+  geom_hline(yintercept = 0, size=1 ) +theme_classic()+
+  ylab("Estimate")+ xlab("Parameters")+
+  geom_point(data=known.df, aes(x=Pars, y = Value),size=3, color="red")+
+  theme( legend.key.size = unit(1.5, "cm"),
+         legend.title =element_text(size=14,margin = margin(r =10,unit = "pt")),
+         legend.text=element_text(size=14,margin = margin(r =10, unit = "pt")), 
+         legend.position = "top",
+         axis.line.x = element_line(color="black") ,
+         axis.ticks.y = element_line(color="black"),
+         axis.ticks.x = element_line(color="black"),
+         axis.title.x = element_text(size = rel(1.8)),
+         axis.text.x  = element_text(vjust=0.5, color = "black",size=14),
+         axis.text.y  = element_text(vjust=0.5,color = "black",size=14),
+         axis.title.y = element_text(size = rel(1.8), angle = 90) ,
+         strip.text.x = element_text(size=20) )
+
+
+### Using less data points ( subsetting to what we survey in the real data)
+
+
+full.df <- read.csv("Data/simple_df.csv")
+
+dim(full.df) ## 1923 X 24
+
+names(full.df)
+
+## Data structure
+## 
+##  Species: Aedes vexans
+##  Domain : D05 - great lakes
+##  Site: UNDE
+##  Plots: 11
+##  Years: 5 , 2014,2016,2017, 2018, 2019
+##  Unique sampling events : 1923
+
+## adding julian date to data frame
+
+full.df$Julian <- (full.df$DOY+(full.df$Year-min(full.df$Year))*365) +1
+
+## subsetting the simulated data set 
+
+subY.df <- y.df %>% filter( Julian %in% full.df$Julian)
+
+
+subY.df %>% ggplot(aes(x=Julian, y= (rCount ))) + geom_point()
+
+
+stan_d <- list( N = nrow(subY.df), P = ncol(X),
+                Time = nrow(X),
+                Julian = subY.df$Julian,
+                X= X,
+                Y= subY.df$rCount, offset = subY.df$Offset )
+
+ar_output3s <- stan( 'Scripts/Stan/Ar_take_3.stan', 
+                     data=stan_d, iter = 5000,
+                     control = list(max_treedepth = 20))
+
+
+print(ar_output3s, pars = c("rho", 'beta', "sigma"))
+traceplot(ar_output3s)
+
+
+post <- extract(ar_output3s)
+
+
+#saveRDS(ar_output3 ,"bayes_sim.rds")
 
 
 ## plotting rho values
@@ -200,79 +300,5 @@ ggplot(beta.df, aes(x=Parameters, y=Estimate))+  geom_violin(alpha=.5,fill="gray
          strip.text.x = element_text(size=20) )
 
 
-
-
-
-plot.df <- stan.df
-
-plot.df <- as.data.frame(colMedians(as.matrix(post$m)))
-
-test <- colQuantiles(as.matrix(post$m), probs=c(0.025,0.975))
-
-plot.df$Q_2.5  <- test[,1]
-
-plot.df$Q_97.5  <- test[,2]
-plot.df$Julian <- 1:nrow(plot.df)
-
-colnames(plot.df)[1] <- "Count"
-
-plot.df %>% 
-  ggplot( aes(x=Julian, y=log10(exp(Count)+1))) +
-  geom_ribbon(aes(x=Julian, ymin= log10(exp(Q_2.5)+1), 
-                  ymax= log10(exp(Q_97.5)+1) ), fill ="grey",alpha=.7 )+
-  geom_line(color="red", size=2)+
-  geom_point(data=stan.df, aes(x=Julian, y=log10(( Count /TrapHours) +1)) )+
-  ylab("log10(Predicted mosquito count)") + 
-  xlab("Julian date")+ theme_classic()+
-  theme( legend.key.size = unit(1.5, "cm"),
-         legend.title =element_text(size=14,margin = margin(r =10,unit = "pt")),
-         legend.text=element_text(size=14,margin = margin(r =10, unit = "pt")), 
-         legend.position = "top",
-         axis.line.x = element_line(color="black") ,
-         axis.ticks.y = element_line(color="black"),
-         axis.ticks.x = element_line(color="black"),
-         axis.title.x = element_text(size = rel(1.8)),
-         axis.text.x  = element_text(vjust=0.5, color = "black",size=14),
-         axis.text.y  = element_text(vjust=0.5,color = "black",size=14),
-         axis.title.y = element_text(size = rel(1.8), angle = 90) ,
-         strip.text.x = element_text(size=20) )
-
-
-
-plot.df %>% 
-  ggplot( aes(x=Julian, y=log10((Count*Offset)+1))) + 
-  geom_point(aes(x= Julian, y= Pred*.52),size=1)+
-  geom_point(color="red", size=.7)+ facet_wrap(~Plot, scales ="free")
-
-
-plot.df %>% 
-  ggplot( aes(x=Julian, y=log10((Count*Offset)+1), color = as.factor(Year))) +
-  geom_point(aes(x= Julian, y= Pred*Offset),size=2)+
-  geom_point(color="black", size=1.5,alpha=.5)+ylab("Mosquito Count") + 
-  xlab("Julian date")
-scale_color_brewer(palette = "Set1",
-                   name="Predicted count year")+ theme_classic()+
-  theme( legend.key.size = unit(1.5, "cm"),
-         legend.title =element_text(size=14,margin = margin(r =10,unit = "pt")),
-         legend.text=element_text(size=14,margin = margin(r =10, unit = "pt")), 
-         legend.position = "top",
-         axis.line.x = element_line(color="black") ,
-         axis.ticks.y = element_line(color="black"),
-         axis.ticks.x = element_line(color="black"),
-         axis.title.x = element_text(size = rel(1.8)),
-         axis.text.x  = element_text(vjust=0.5, color = "black",size=14),
-         axis.text.y  = element_text(vjust=0.5,color = "black",size=14),
-         axis.title.y = element_text(size = rel(1.8), angle = 90) ,
-         strip.text.x = element_text(size=20) )
-
-
-plot.df %>% 
-  ggplot( aes(x=Julian, y=log10(Count*Offset+1))) + 
-  geom_ribbon(aes(x=Julian, ymin=0, ymax=(Q_97.5*Offset)))+
-  geom_point(color="red", size=1.5)+ facet_wrap(~Year, scales ="free")
-
-plot.df %>% 
-  ggplot( aes(x=exp(Q_97.5), y=exp(Pred))) +geom_point() +
-  geom_abline(slope=1, intercept=0)
 
 
