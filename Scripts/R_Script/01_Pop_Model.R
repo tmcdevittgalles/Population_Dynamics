@@ -63,7 +63,8 @@ stan.df %>%
   ggplot(aes(x=DOY,y= Count*Offset  ,color=as.factor(Year)) )+ geom_point()
 
 stan.df %>% 
-  ggplot(aes(x=Julian,y= log10(Count*Offset+1)  ) )+ geom_point()+
+  ggplot(aes(x=Julian,y= log10(Count*Offset+1), color=as.factor(Year) ))+
+        geom_point()+     scale_color_brewer(palette="Set1", name="Year")  +
   theme_classic()+ylab("Mosquito Count")+ xlab("Julian date")+ 
  
   theme( legend.key.size = unit(1.5, "cm"),
@@ -105,7 +106,7 @@ ar_output4 <- stan( 'Scripts/Stan/Ar_take2.stan',
 saveRDS(ar_output4 ,"bayes.rds")
 
 ## print estimated coefficients
-
+readRDS("bayes.rds")
 
 print(ar_output4, pars = c("rho", 'beta'))
 traceplot(ar_output3)
@@ -301,6 +302,7 @@ points(x=stan.df$Julian, y= log10((stan.df$Count*stan.df$Offset+1)))
 
 saveRDS(ar_output5 ,"bayes_back.rds")
 
+ar_output5 <- readRDS("bayes_back.rds")
 
 ## plotting rho values
 
@@ -340,9 +342,30 @@ ggplot(beta.df, aes(x=Parameters, y=Estimate))+  geom_violin(alpha=.5,fill="gray
 
 
 
+plot1.df <- beta.df %>% filter( Parameters =="PPT" |
+                                  Parameters == "TMin"|
+                                  Parameters == "TMin:PPT")
 
 
-plot.df <- stan.df
+
+ggplot(plot1.df, aes(x=Parameters, y=Estimate))+  geom_violin(alpha=.5,fill="gray")+
+  geom_boxplot(color="black", width=.05, outlier.size = 0) +
+  geom_hline(yintercept = 0, size=1 ) +theme_classic()+
+  ylab("Estimate")+ xlab("Parameters")+
+  theme( legend.key.size = unit(1.5, "cm"),
+         legend.title =element_text(size=14,margin = margin(r =10,unit = "pt")),
+         legend.text=element_text(size=14,margin = margin(r =10, unit = "pt")), 
+         legend.position = "top",
+         axis.line.x = element_line(color="black") ,
+         axis.ticks.y = element_line(color="black"),
+         axis.ticks.x = element_line(color="black"),
+         axis.title.x = element_text(size = rel(1.8)),
+         axis.text.x  = element_text(vjust=0.5, color = "black",size=14),
+         axis.text.y  = element_text(vjust=0.5,color = "black",size=14),
+         axis.title.y = element_text(size = rel(1.8), angle = 90) ,
+         strip.text.x = element_text(size=20) )
+
+
 
 plot.df <- as.data.frame(colMedians(as.matrix(post$m)))
 
@@ -359,8 +382,10 @@ plot.df %>%
   ggplot( aes(x=Julian, y=log10(exp(Count)+1))) +
   geom_ribbon(aes(x=Julian, ymin= log10(exp(Q_2.5)+1), 
                   ymax= log10(exp(Q_97.5)+1) ), fill ="grey",alpha=.7 )+
-  geom_line(color="red", size=2)+
-  geom_point(data=stan.df, aes(x=Julian, y=log10(( Count /TrapHours) +1)) )+
+  geom_line(color="black",alpha=.75, size=2)+
+  geom_point(data=stan.df, aes(x=Julian, y=log10(( Count /TrapHours) +1),
+                               color=as.factor(Year)) )+
+  scale_color_brewer(palette="Set1", name="Year")+
   ylab("log10(Predicted mosquito count)") + 
   xlab("Julian date")+ theme_classic()+
   theme( legend.key.size = unit(1.5, "cm"),
@@ -375,6 +400,49 @@ plot.df %>%
          axis.text.y  = element_text(vjust=0.5,color = "black",size=14),
          axis.title.y = element_text(size = rel(1.8), angle = 90) ,
          strip.text.x = element_text(size=20) )
+
+
+### 
+
+test <- colQuantiles(as.matrix(post$m), probs=c(0.025,0.975))
+
+plot.df$Q_2.5  <- test[,1]
+
+plot.df$Q_97.5  <- test[,2]
+plot.df$Julian <- 1:nrow(plot.df)
+
+colnames(plot.df)[1] <- "Count"
+
+at1 <- plot.df %>% filter(Julian >800 & Julian < 1100)
+
+stan1.df <- stan.df %>% filter(Julian >800 & Julian < 1100)
+
+clor <- RColorBrewer::brewer.pal(1,"Set1")
+
+at1 %>% 
+  ggplot( aes(x=Julian, y=log10(exp(Count)+1))) +
+  geom_ribbon(aes(x=Julian, ymin= log10(exp(Q_2.5)+1), 
+                  ymax= log10(exp(Q_97.5)+1) ), fill ="grey",alpha=.7 )+
+  geom_line(color="black", alpha=.75, size=2) +
+  geom_point(data=stan1.df, aes(x=Julian, y=log10(( Count /TrapHours) +1),
+                              color=as.factor(Year)) )+
+  scale_color_manual( values ="#377EB8", name="Year")+
+  ylab("log10(Predicted mosquito count)") + ylim(0,2.5)+
+  xlab("Julian date")+ theme_classic()+
+  theme( legend.key.size = unit(1.5, "cm"),
+         legend.title =element_text(size=14,margin = margin(r =10,unit = "pt")),
+         legend.text=element_text(size=14,margin = margin(r =10, unit = "pt")), 
+         legend.position = "top",
+         axis.line.x = element_line(color="black") ,
+         axis.ticks.y = element_line(color="black"),
+         axis.ticks.x = element_line(color="black"),
+         axis.title.x = element_text(size = rel(1.8)),
+         axis.text.x  = element_text(vjust=0.5, color = "black",size=14),
+         axis.text.y  = element_text(vjust=0.5,color = "black",size=14),
+         axis.title.y = element_text(size = rel(1.8), angle = 90) ,
+         strip.text.x = element_text(size=20) )
+
+
 
 
 
@@ -482,9 +550,6 @@ ggplot(beta.df, aes(x=Parameters, y=Estimate))+  geom_violin(alpha=.5,fill="gray
 
 
 
-
-plot.df <- stan.df
-
 plot.df <- as.data.frame(colMedians(as.matrix(post$m)))
 
 test <- colQuantiles(as.matrix(post$m), probs=c(0.025,0.975))
@@ -496,12 +561,16 @@ plot.df$Julian <- 1:nrow(plot.df)
 
 colnames(plot.df)[1] <- "Count"
 
+stan2.df <- stan.df %>% filter(Year != 2016)
+
 plot.df %>% 
   ggplot( aes(x=Julian, y=log10(exp(Count)+1))) +
   geom_ribbon(aes(x=Julian, ymin= log10(exp(Q_2.5)+1), 
                   ymax= log10(exp(Q_97.5)+1) ), fill ="grey",alpha=.7 )+
-  geom_line(color="red", size=2)+
-  geom_point(data=stan.df, aes(x=Julian, y=log10(( Count /TrapHours) +1)) )+
+  geom_line(color="black",alpha=.75, size=2)+
+  geom_point(data=stan2.df, aes(x=Julian, y=log10(( Count /TrapHours) +1),
+                               color=as.factor(Year)) )+
+  scale_color_brewer(palette="Set1", name="Year")+
   ylab("log10(Predicted mosquito count)") + 
   xlab("Julian date")+ theme_classic()+
   theme( legend.key.size = unit(1.5, "cm"),
@@ -518,20 +587,33 @@ plot.df %>%
          strip.text.x = element_text(size=20) )
 
 
+### 
 
-plot.df %>% 
-  ggplot( aes(x=Julian, y=log10((Count*Offset)+1))) + 
-  geom_point(aes(x= Julian, y= Pred*.52),size=1)+
-  geom_point(color="red", size=.7)+ facet_wrap(~Plot, scales ="free")
+test <- colQuantiles(as.matrix(post$m), probs=c(0.025,0.975))
 
+plot.df$Q_2.5  <- test[,1]
 
-plot.df %>% 
-  ggplot( aes(x=Julian, y=log10((Count*Offset)+1), color = as.factor(Year))) +
-  geom_point(aes(x= Julian, y= Pred*Offset),size=2)+
-  geom_point(color="black", size=1.5,alpha=.5)+ylab("Mosquito Count") + 
-  xlab("Julian date")
-scale_color_brewer(palette = "Set1",
-                   name="Predicted count year")+ theme_classic()+
+plot.df$Q_97.5  <- test[,2]
+plot.df$Julian <- 1:nrow(plot.df)
+
+colnames(plot.df)[1] <- "Count"
+
+at1 <- plot.df %>% filter(Julian >800 & Julian < 1100)
+
+stan1.df <- stan.df %>% filter(Julian >800 & Julian < 1100)
+
+clor <- RColorBrewer::brewer.pal(1,"Set1")
+
+at1 %>% 
+  ggplot( aes(x=Julian, y=log10(exp(Count)+1))) +
+  geom_ribbon(aes(x=Julian, ymin= log10(exp(Q_2.5)+1), 
+                  ymax= log10(exp(Q_97.5)+1) ), fill ="grey",alpha=.7 )+
+  geom_line(color="black", alpha=.75, size=2) +
+  geom_point(data=stan1.df, aes(x=Julian, y=log10(( Count /TrapHours) +1),
+                                color=as.factor(Year)) )+
+  scale_color_manual( values ="#377EB8", name="Year")+
+  ylab("log10(Predicted mosquito count)") +# ylim(0,2.5)+
+  xlab("Julian date")+ theme_classic()+
   theme( legend.key.size = unit(1.5, "cm"),
          legend.title =element_text(size=14,margin = margin(r =10,unit = "pt")),
          legend.text=element_text(size=14,margin = margin(r =10, unit = "pt")), 
@@ -544,16 +626,6 @@ scale_color_brewer(palette = "Set1",
          axis.text.y  = element_text(vjust=0.5,color = "black",size=14),
          axis.title.y = element_text(size = rel(1.8), angle = 90) ,
          strip.text.x = element_text(size=20) )
-
-
-plot.df %>% 
-  ggplot( aes(x=Julian, y=log10(Count*Offset+1))) + 
-  geom_ribbon(aes(x=Julian, ymin=0, ymax=(Q_97.5*Offset)))+
-  geom_point(color="red", size=1.5)+ facet_wrap(~Year, scales ="free")
-
-plot.df %>% 
-  ggplot( aes(x=exp(Q_97.5), y=exp(Pred))) +geom_point() +
-  geom_abline(slope=1, intercept=0)
 
 
 
