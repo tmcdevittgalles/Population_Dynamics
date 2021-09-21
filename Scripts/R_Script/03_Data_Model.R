@@ -118,7 +118,7 @@ plot(weather.df$Julian,weather.df$STemp, type = "l")
 Weather <- model.matrix(~scale(weather.df$STemp)*scale(weather.df$mPPT))
 
 
-data.m <- model.matrix(~ stan.df$NorD)
+data.m <- model.matrix(~ 0+  stan.df$NorD)
 
 stan_d <- list( N = nrow(stan.df), P = ncol(Weather),
                 Time = nrow(Weather),
@@ -130,7 +130,7 @@ stan_d <- list( N = nrow(stan.df), P = ncol(Weather),
 
 ar_output5 <- stan( 'Scripts/Stan/Ar_data.stan', 
                     data=stan_d, iter = 4000,
-                    control = list(max_treedepth = 20))
+                    control = list(max_treedepth = 10))
 
 
 print(ar_output5, pars = c("rho", 'beta', "dBeta"))
