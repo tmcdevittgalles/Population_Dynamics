@@ -72,7 +72,7 @@ stan.df %>%
 
 stan.df %>% 
   ggplot(aes(x=Julian,y= (Count*Offset), color=SciName ))+
-  geom_point()+     scale_color_brewer(palette="Set1", name="SciName")  +
+  geom_point(size=2, alpha=.5)+     scale_color_brewer(palette="Set1", name="Species")  +
   theme_classic()+ylab("Mosquito Count")+ xlab("Julian date")+ 
  
   theme( legend.key.size = unit(1.5, "cm"),
@@ -141,6 +141,44 @@ plot(weather.df$Julian,weather.df$mPPT, type = "l")
 plot(weather.df$Julian,weather.df$TMIN, type = "l")
 plot(weather.df$Julian,weather.df$STemp, type = "l")
 
+weather.df %>% 
+  ggplot(aes(x=Julian, y=TMIN)) +
+  geom_point(alpha=.5) + geom_line(aes(x=Julian, y= STemp),size=2)+
+  theme_classic()+ylab("Daily minimum temperature")+ xlab("Julian date")+ 
+ 
+  theme( legend.key.size = unit(1.5, "cm"),
+         legend.title =element_text(size=14,margin = margin(r =10,unit = "pt")),
+         legend.text=element_text(size=14,margin = margin(r =10, unit = "pt")), 
+         legend.position = "None",
+         axis.line.x = element_line(color="black") ,
+         axis.ticks.y = element_line(color="black"),
+         axis.ticks.x = element_line(color="black"),
+         axis.title.x = element_text(size = rel(1.8)),
+         axis.text.x  = element_text(vjust=0.5, color = "black",size=14),
+         axis.text.y  = element_text(vjust=0.5,color = "black",size=14),
+         axis.title.y = element_text(size = rel(1.8), angle = 90) ,
+         strip.text.x = element_text(size=20) )
+
+
+weather.df %>% 
+  ggplot(aes(x=Julian, y=mPPT)) +
+  geom_line(alpha=.95, size=2) + 
+  theme_classic()+ylab("14 day total precip")+ xlab("Julian date")+ 
+  
+  theme( legend.key.size = unit(1.5, "cm"),
+         legend.title =element_text(size=14,margin = margin(r =10,unit = "pt")),
+         legend.text=element_text(size=14,margin = margin(r =10, unit = "pt")), 
+         legend.position = "None",
+         axis.line.x = element_line(color="black") ,
+         axis.ticks.y = element_line(color="black"),
+         axis.ticks.x = element_line(color="black"),
+         axis.title.x = element_text(size = rel(1.8)),
+         axis.text.x  = element_text(vjust=0.5, color = "black",size=14),
+         axis.text.y  = element_text(vjust=0.5,color = "black",size=14),
+         axis.title.y = element_text(size = rel(1.8), angle = 90) ,
+         strip.text.x = element_text(size=20) )
+
+
 weather.df <- weather.df %>% filter( Year > 2013)
 
 weather.df$Julian <- julian( weather.df$Date , 
@@ -183,14 +221,16 @@ ggplot(aes(x=Julian,y= log10(Count*Offset +1) ))+
 Weather <- model.matrix(~scale(weather.df$STemp)*scale(weather.df$mPPT)*weather.df$SciName)
 
 
-spp <- model.matrix(~0 + stan.df$SciName )
+spp <- model.matrix(~0 + rm.df$SciName )
 
-stan_d <- list( N = nrow(stan.df), P = ncol(Weather),
+rm.df <- stan.df %>%  filter( Year != "2017")
+
+stan_d <- list( N = nrow(rm.df), P = ncol(Weather),
                 Time = max(weather.df$Julian), nSpp = ncol(spp),
-                Julian = stan.df$Julian,
+                Julian = rm.df$Julian,
                 X= Weather,
                 Spp = spp,
-                Y= stan.df$Count, offset = stan.df$Offset )
+                Y= rm.df$Count, offset = rm.df$Offset )
 
 ar_output5 <- stan( 'Scripts/Stan/Two_Spp_SSM2.stan', 
                     data=stan_d, iter = 2000,
@@ -210,6 +250,8 @@ saveRDS(ar_output5 ,"two_spp2.rds")
 
 ar_output5 <- readRDS("bayes_back.rds")
 
+ar_output5 <- readRDS('Fitted_Models/two_spp2.rds')
+
 ## plotting rho values
 
 rho.df <- as.data.frame(post$rho)
@@ -220,21 +262,26 @@ colnames(rho.df) <- "Rho"
 beta.df <- as.data.frame(post$beta)
 
 
-colnames(beta.df) <- c("Intercept",  "Temp", "PPT","C.Per",
-                       "Temp:PPT", "Temp:C.Per", 
-                       "PPT:C.Per", "ThreeWay")
+colnames(beta.df) <- c("Intercept",  "Temp", "PPT","C.per",
+                       "Temp:PPT", "Temp:C.per", 
+                       "PPT:C.per", "Temp:PPT:C.per" )
 
-beta.df <- cbind.data.frame(beta.df, rho.df)
+#beta.df <- cbind.data.frame(beta.df, rho.df)
 
 beta.df <- tidyr::pivot_longer(beta.df, cols= 1:8, names_to="Parameters",
                                values_to = "Estimate")
 
+beta.df$Parameters <- factor(beta.df$Parameters,levels=
+                               c("Intercept", "C.per",
+                                 "Temp","Temp:C.per", 
+                                 "PPT","PPT:C.per",
+                                 "Temp:PPT",  "Temp:PPT:C.per" ))
 
 
 ggplot(beta.df, aes(x=Parameters, y=Estimate))+  geom_violin(alpha=.5,fill="gray")+
   geom_boxplot(color="black", width=.05, outlier.size = 0) +
   geom_hline(yintercept = 0, size=1 ) +theme_classic()+
-  ylab("Estimate")+ xlab("Parameters")+
+  ylab("Estimated coefficient")+ xlab("Parameters")+
   theme( legend.key.size = unit(1.5, "cm"),
          legend.title =element_text(size=14,margin = margin(r =10,unit = "pt")),
          legend.text=element_text(size=14,margin = margin(r =10, unit = "pt")), 
@@ -309,9 +356,10 @@ plot.df %>%
   geom_ribbon(aes(x=Julian, ymin= log(exp(Q_2.5)+1), 
                ymax= log(exp(Q_97.5)+1),fill=SciName ),alpha=.2 )+
   geom_line(aes(color=SciName),alpha=.85, size=2)+
-  geom_point(data=stan.df, aes(x=Julian, y=log(( Count *Offset) +1),
+  geom_point(data=rm.df, aes(x=Julian, y=log(( Count *Offset) +1),
                                color=as.factor(SciName)), alpha=.25)+
   scale_color_brewer(palette="Set1", name="Species")+
+  scale_fill_brewer(palette="Set1", name="Species")+
   ylab("log(Predicted mosquito count)") + 
   xlab("Julian date")+ theme_classic()+
   theme( legend.key.size = unit(1.5, "cm"),
@@ -326,6 +374,42 @@ plot.df %>%
          axis.text.y  = element_text(vjust=0.5,color = "black",size=14),
          axis.title.y = element_text(size = rel(1.8), angle = 90) ,
          strip.text.x = element_text(size=20) )
+
+
+### single year
+
+
+at1 <- plot.df %>% filter(Julian >800 & Julian < 1100)
+
+stan1.df <- stan.df %>% filter(Julian >800 & Julian < 1100)
+
+
+at1 %>% 
+  ggplot( aes(x=Julian, y=log(exp(Count)+1))) +
+  geom_ribbon(aes(x=Julian, ymin= log(exp(Q_2.5)+1), 
+                  ymax= log(exp(Q_97.5)+1),fill=SciName ),alpha=.2 )+
+  geom_line(aes(color=SciName),alpha=.85, size=2)+
+  geom_point(data=stan1.df, aes(x=Julian, y=log(( Count *Offset) +1),
+                               color=as.factor(SciName)), alpha=.25)+
+  scale_color_brewer(palette="Set1", name="Species")+
+  scale_fill_brewer(palette="Set1", name="Species")+
+  ylab("log(Predicted mosquito count)") + 
+  xlab("Julian date")+ theme_classic()+
+  theme( legend.key.size = unit(1.5, "cm"),
+         legend.title =element_text(size=14,margin = margin(r =10,unit = "pt")),
+         legend.text=element_text(size=14,margin = margin(r =10, unit = "pt")), 
+         legend.position = "top",
+         axis.line.x = element_line(color="black") ,
+         axis.ticks.y = element_line(color="black"),
+         axis.ticks.x = element_line(color="black"),
+         axis.title.x = element_text(size = rel(1.8)),
+         axis.text.x  = element_text(vjust=0.5, color = "black",size=14),
+         axis.text.y  = element_text(vjust=0.5,color = "black",size=14),
+         axis.title.y = element_text(size = rel(1.8), angle = 90) ,
+         strip.text.x = element_text(size=20) )
+
+
+
 
 #### Plotting growth rate #####
 grow.df <- as.data.frame(colMedians(as.matrix(post$r[,,2])))
@@ -366,7 +450,7 @@ grow.df %>%
   scale_fill_brewer(palette="Set1", name="Species")+
   scale_color_brewer(palette="Set1", name="Species")+
 
-  ylab("log(Predicted mosquito count)") + 
+  ylab("Growth rate") + 
   xlab("Julian date")+ theme_classic()+
   theme( legend.key.size = unit(1, "cm"),
          legend.title =element_text(size=14,margin = margin(r =10,unit = "pt")),
@@ -380,4 +464,5 @@ grow.df %>%
          axis.text.y  = element_text(vjust=0.5,color = "black",size=14),
          axis.title.y = element_text(size = rel(1.8), angle = 90) ,
          strip.text.x = element_text(size=20) )
+
 

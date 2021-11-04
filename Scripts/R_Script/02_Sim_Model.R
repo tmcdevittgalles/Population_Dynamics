@@ -90,11 +90,11 @@ y.df$Offset <- rbeta(nrow(y.df),9,3)
 
 ## establising known parameters
 
-betas <- c(-8, -3, 3,-3)
+betas <- c(-5, 2, .5,-1)
 
-rho <- .5
+rho <- .8
 
-sigma <- 6
+sigma <- 4
 
 
 y.df <- y.df %>% arrange( Julian)
@@ -112,7 +112,7 @@ r[i] <- (sum(X[i-1,]*betas))+((y.df$Count[i-1])*rho)
   y.df$Count[i] <-  ( rnorm( 1,(r[i])*y.df$Offset[i] ,sigma) )
 }
 
-y.df %>% ggplot(aes(x=Julian, y= (exp(Count) ))) + geom_point()
+y.df %>% ggplot(aes(x=Julian, y= ((Count) ))) + geom_point()
 
 
 y.df %>% ggplot(aes(x=Julian, y= log10(exp(Count)+1 ))) + geom_point()
@@ -121,7 +121,21 @@ y.df$Julian <- 1:nrow(y.df)
 
 y.df$rCount <- as.integer( round( exp(y.df$Count), 0 ))
 
-y.df %>% ggplot(aes(x=Julian, y= (rCount ))) + geom_point()
+y.df %>% ggplot(aes(x=Julian, y= log10(rCount+1 ))) + geom_point()+
+  theme_classic()+ylab("Simulated mosquito count")+ xlab("Julian date")+ 
+  
+  theme( legend.key.size = unit(1.5, "cm"),
+         legend.title =element_text(size=14,margin = margin(r =10,unit = "pt")),
+         legend.text=element_text(size=14,margin = margin(r =10, unit = "pt")), 
+         legend.position = "top",
+         axis.line.x = element_line(color="black") ,
+         axis.ticks.y = element_line(color="black"),
+         axis.ticks.x = element_line(color="black"),
+         axis.title.x = element_text(size = rel(1.8)),
+         axis.text.x  = element_text(vjust=0.5, color = "blac`k",size=14),
+         axis.text.y  = element_text(vjust=0.5,color = "black",size=14),
+         axis.title.y = element_text(size = rel(1.8), angle = 90) ,
+         strip.text.x = element_text(size=20) )
 
 ## testing to see if i can get these values back
 
@@ -132,7 +146,7 @@ stan_d <- list( N = nrow(y.df), P = ncol(X),
                 Y= y.df$rCount, offset = y.df$Offset )
 
 ar_output3a <- stan( 'Scripts/Stan/Ar_take_3.stan', 
-                    data=stan_d, iter = 4000,
+                    data=stan_d, iter = 2000,
                     control = list(max_treedepth = 10))
 
 
@@ -141,11 +155,14 @@ print(ar_output3a, pars = c("rho", 'beta', "sigma"))
 traceplot(ar_output3)
 
 
+saveRDS(ar_output3a ,"bayes_sim.rds")
+
+saveRDS(y.df,"sim_data.rds")
+
+ar_output3a <- readRDS("bayes_sim.rds")
+ 
+ 
 post <- extract(ar_output3a)
-
-
-saveRDS(ar_output3 ,"bayes_sim.rds")
-
 
 ## plotting rho values
 
@@ -177,7 +194,7 @@ beta.df$Parameters <- factor( beta.df$Parameters, level=c("Rho", "Intercept", "T
 
 known.df <- data.frame( Pars = as.factor(c("Rho", "Intercept", "TMin", "PPT",
                                            "TMin:PPT", "Sigma")),
-                        Value = as.numeric(c(.5,-8,-3,3,-3,6)) )
+                        Value = as.numeric(c(.8,-5,2,.5,-1,4)) )
 
 ggplot(beta.df, aes(x=Parameters, y=Estimate))+  geom_violin(alpha=.5,fill="gray")+
   geom_boxplot(color="black", width=.05, outlier.size = 0) +
@@ -301,4 +318,38 @@ ggplot(beta.df, aes(x=Parameters, y=Estimate))+  geom_violin(alpha=.5,fill="gray
 
 
 
+
+plot.df <- as.data.frame(colMedians(as.matrix(post$m)))
+
+test <- colQuantiles(as.matrix(post$m), probs=c(0.025,0.975))
+
+plot.df$Q_2.5  <- test[,1]
+
+plot.df$Q_97.5  <- test[,2]
+plot.df$Julian <- 1:nrow(plot.df)
+
+colnames(plot.df)[1] <- "Count"
+
+
+plot.df %>% 
+  ggplot( aes(x=Julian, y=log(exp(Count)+1))) +
+  geom_ribbon(aes(x=Julian, ymin= log(exp(Q_2.5)+1), 
+                  ymax= log(exp(Q_97.5)+1) ),alpha=.2 )+
+  geom_line(alpha=.85, size=1) +
+  geom_point(data=y.df, aes(x=Julian, y=log(( exp(Count) *Offset) +1)),
+                              alpha=.25)+
+  ylab("log(Predicted mosquito count)") + 
+  xlab("Julian date")+ theme_classic()+
+  theme( legend.key.size = unit(1.5, "cm"),
+         legend.title =element_text(size=14,margin = margin(r =10,unit = "pt")),
+         legend.text=element_text(size=14,margin = margin(r =10, unit = "pt")), 
+         legend.position = "top",
+         axis.line.x = element_line(color="black") ,
+         axis.ticks.y = element_line(color="black"),
+         axis.ticks.x = element_line(color="black"),
+         axis.title.x = element_text(size = rel(1.8)),
+         axis.text.x  = element_text(vjust=0.5, color = "black",size=14),
+         axis.text.y  = element_text(vjust=0.5,color = "black",size=14),
+         axis.title.y = element_text(size = rel(1.8), angle = 90) ,
+         strip.text.x = element_text(size=20) )
 
